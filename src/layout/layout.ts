@@ -22,8 +22,11 @@ export interface LayoutOptions {
 	minGap: number;
 	/** Extra clear space after a barline. */
 	barPad: number;
-	/** Distance between the two staff lines. */
-	staffHeight: number;
+	/**
+	 * Vertical distance between the longest and shortest tine tips. The staff height is derived from this
+	 * plus the room needed above for beams and below for numbers.
+	 */
+	tipSpread: number;
 	/** Space above the staff for the bar number, and between systems. */
 	systemGap: number;
 	marginX: number;
@@ -45,16 +48,16 @@ export const DEFAULT_LAYOUT: LayoutOptions = {
 	width: 720,
 	pxPerQuarter: 72,
 	glyphWidth: 14,
-	glyphHeight: 28,
+	glyphHeight: 18,
 	cornerRadius: 7,
 	minGap: 6,
 	barPad: 6,
-	staffHeight: 160,
+	tipSpread: 20,
 	systemGap: 36,
 	marginX: 12,
-	stemTop: 14,
-	beamThickness: 3.5,
-	beamSpacing: 6.5,
+	stemTop: 4,
+	beamThickness: 3,
+	beamSpacing: 5,
 	minGridPx: 36,
 	maxJustify: 1.6,
 	labels: 'inside',
@@ -62,12 +65,13 @@ export const DEFAULT_LAYOUT: LayoutOptions = {
 };
 
 const INSIDE_LABEL_SIZE = 12;
-/** Worst-case room between a glyph's bottom and a number beneath it: a small gap plus two octave dots. */
-const BELOW_DOT_RESERVE = 11;
+/** Clear space under the lowest thing on the staff. */
+const STAFF_BOTTOM_PAD = 4;
 
-/** Extra staff height needed below the lowest tine when numbers sit beneath the glyphs. */
-function belowLabelSpace(o: LayoutOptions): number {
-	return o.labels === 'below' ? BELOW_DOT_RESERVE + o.belowLabelSize * 0.8 : 0;
+/** Centre of a number placed beneath a glyph whose bottom is at `bottom`. */
+function belowLabelY(bottom: number, octave: number, o: LayoutOptions): number {
+	// Tuck the number up under the glyph, leaving room only for the octave dots it actually has.
+	return bottom + 3 + Math.max(0, octave) * 4 + o.belowLabelSize * 0.4;
 }
 
 export type Primitive =
@@ -142,12 +146,26 @@ function extents(event: ScoreEvent, o: LayoutOptions): { left: number; right: nu
 }
 
 /** Maps tine length to the y of its tip, relative to the top staff line. */
+/** Staff height: enough for the lowest tine tip, or for the lowest number when numbers sit beneath. */
+export function staffHeightFor(tuning: Tuning, o: LayoutOptions): number {
+	const tipY = tipYMapper(tuning, o);
+	const lowestContent = Math.max(
+		...tuning.tines.map((t) => {
+			const tip = tipY(t.length);
+			// Cap height is about 0.72 of the font size, centred on the label's y.
+			return o.labels === 'below' ? belowLabelY(tip, t.octave, o) + o.belowLabelSize * 0.38 : tip;
+		}),
+	);
+	return Math.ceil(lowestContent + STAFF_BOTTOM_PAD);
+}
+
 export function tipYMapper(tuning: Tuning, o: LayoutOptions): (length: number) => number {
 	const lengths = tuning.tines.map((t) => t.length);
 	const max = Math.max(...lengths);
 	const min = Math.min(...lengths);
-	const lowest = o.staffHeight - 8 - belowLabelSpace(o);
-	const highest = o.stemTop + 3 * o.beamSpacing + o.glyphHeight + 6;
+	// The shortest tine's glyph sits just under the deepest beam (three levels, for 32nds).
+	const highest = o.stemTop + 2 * o.beamSpacing + o.beamThickness / 2 + 3 + o.glyphHeight;
+	const lowest = highest + o.tipSpread;
 	return (length) => {
 		const n = max === min ? 1 : (length - min) / (max - min);
 		return highest + n * (lowest - highest);
@@ -201,13 +219,12 @@ function interpolate(anchors: TimeAnchor[], tick: number): number {
 }
 
 export function layoutScore(score: Score, options: Partial<LayoutOptions> = {}): ScoreLayout {
-	const merged = { ...DEFAULT_LAYOUT, ...options };
-	// Numbers beneath the glyphs get their own band at the bottom of the staff rather than squeezing the tines.
-	const o = { ...merged, staffHeight: merged.staffHeight + belowLabelSpace(merged) };
+	const o = { ...DEFAULT_LAYOUT, ...options };
 	const anchors = placeAnchors(score, o);
 	const bars = anchors.filter((a) => a.kind === 'bar');
 	const bar = barTicks(score.time);
 	const tipY = tipYMapper(score.tuning, o);
+	const staffHeight = staffHeightFor(score.tuning, o);
 
 	// Greedy line breaking on whole bars.
 	const available = o.width - 2 * o.marginX;
@@ -250,7 +267,7 @@ export function layoutScore(score: Score, options: Partial<LayoutOptions> = {}):
 			else timeAnchors.push({ tick: a.tick, x });
 		}
 
-		const primitives = buildSystem(score, o, inLine, tx, tipY, top, isLast && last.tick >= score.totalTicks);
+		const primitives = buildSystem(score, o, inLine, tx, tipY, top, staffHeight, isLast && last.tick >= score.totalTicks);
 		const startTick = first.tick;
 		const endTick = last.tick;
 
@@ -265,12 +282,12 @@ export function layoutScore(score: Score, options: Partial<LayoutOptions> = {}):
 		if (unit < bar) {
 			for (let t = startTick; t < endTick; t += unit) {
 				if (t % bar === 0) continue;
-				primitives.unshift({ type: 'grid', x: interpolate(timeAnchors, t), y1: top, y2: top + o.staffHeight });
+				primitives.unshift({ type: 'grid', x: interpolate(timeAnchors, t), y1: top, y2: top + staffHeight });
 			}
 		}
 
-		systems.push({ top, height: o.staffHeight, startTick, endTick, primitives, anchors: timeAnchors });
-		top += o.staffHeight + o.systemGap;
+		systems.push({ top, height: staffHeight, startTick, endTick, primitives, anchors: timeAnchors });
+		top += staffHeight + o.systemGap;
 	});
 
 	const width = Math.max(o.width, ...systems.flatMap((s) => s.anchors.map((a) => a.x + o.marginX)));
@@ -284,11 +301,12 @@ function buildSystem(
 	tx: (x: number) => number,
 	tipY: (length: number) => number,
 	top: number,
+	staffHeight: number,
 	finalBar: boolean,
 ): Primitive[] {
 	const out: Primitive[] = [];
 	const bar = barTicks(score.time);
-	const bottom = top + o.staffHeight;
+	const bottom = top + staffHeight;
 	const stemTopY = top + o.stemTop;
 	const barAnchors = inLine.filter((a) => a.kind === 'bar');
 	const x1 = tx(barAnchors[0]!.x);
@@ -311,8 +329,8 @@ function buildSystem(
 		const x = tx(a.x);
 
 		if (ev.kind === 'rest') {
-			out.push({ type: 'rest', x, y: top + o.staffHeight / 2, value: ev.value, event: index });
-			for (let d = 0; d < ev.dots; d++) out.push({ type: 'dot', x: x + 9 + d * 5, y: top + o.staffHeight / 2 - 4, event: index });
+			out.push({ type: 'rest', x, y: top + staffHeight / 2, value: ev.value, event: index });
+			for (let d = 0; d < ev.dots; d++) out.push({ type: 'dot', x: x + 9 + d * 5, y: top + staffHeight / 2 - 4, event: index });
 			continue;
 		}
 
@@ -332,8 +350,7 @@ function buildSystem(
 					x: x + dir * o.glyphWidth * (col + 0.5),
 					y:
 						o.labels === 'below'
-							? // Tuck the number up under the glyph, leaving room only for the octave dots it actually has.
-								g.columnBottoms[col]! + 3 + Math.max(0, n.tine.octave) * 4 + o.belowLabelSize * 0.4
+							? belowLabelY(g.columnBottoms[col]!, n.tine.octave, o)
 							: g.columnBottoms[col]! - 8.5,
 					size: o.labels === 'below' ? o.belowLabelSize : INSIDE_LABEL_SIZE,
 					placement: o.labels,

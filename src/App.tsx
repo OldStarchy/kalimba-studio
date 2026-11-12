@@ -69,6 +69,7 @@ export function App() {
 	const [showSource, setShowSource] = useState(true);
 	const [zoom, setZoom] = useState(72);
 	const [labels, setLabels] = useState(initialLabels);
+	const [spread, setSpread] = useState(20);
 	const [tempoOverride, setTempoOverride] = useState<number | null>(null);
 	const [tick, setTick] = useState<number | null>(null);
 	const [copied, setCopied] = useState(false);
@@ -78,8 +79,8 @@ export function App() {
 
 	const { score, diagnostics } = useMemo(() => parse(source), [source]);
 	const layout = useMemo(
-		() => layoutScore(score, { width: Math.max(320, scoreWidth), pxPerQuarter: zoom, labels }),
-		[score, scoreWidth, zoom, labels],
+		() => layoutScore(score, { width: Math.max(320, scoreWidth), pxPerQuarter: zoom, labels, tipSpread: spread }),
+		[score, scoreWidth, zoom, labels, spread],
 	);
 	const tempo = tempoOverride ?? score.tempo;
 
@@ -178,6 +179,10 @@ export function App() {
 				<label>
 					Spacing
 					<input type="range" min={36} max={160} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
+				</label>
+				<label title="How far apart the tine tips sit vertically">
+					Height
+					<input type="range" min={8} max={120} value={spread} onChange={(e) => setSpread(Number(e.target.value))} />
 				</label>
 				<label>
 					Numbers

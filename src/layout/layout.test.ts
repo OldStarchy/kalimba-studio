@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../model/parse';
 import { buildGlyph, filletTangentDistance } from './glyph';
-import { DEFAULT_LAYOUT, layoutScore, type Primitive, tipYMapper } from './layout';
+import { DEFAULT_LAYOUT, layoutScore, type Primitive, staffHeightFor, tipYMapper } from './layout';
 
 const layout = (src: string, opts = {}) => {
 	const { score, diagnostics } = parse(src);
@@ -108,8 +108,21 @@ describe('layout', () => {
 			expect(l.size).toBe(DEFAULT_LAYOUT.belowLabelSize);
 			expect(l.y + l.size / 2).toBeLessThanOrEqual(bottomLine);
 		}
-		// Tines keep the same spread; the staff grows to make room for the numbers.
-		expect(system.height).toBeGreaterThan(DEFAULT_LAYOUT.staffHeight);
-		expect(tipY(1)).toBe(tipYMapper(score.tuning, DEFAULT_LAYOUT)(1) - (system.height - DEFAULT_LAYOUT.staffHeight));
+		// Tines keep the same positions; the staff grows to make room for the numbers.
+		const inside = layoutScore(score).systems[0]!;
+		expect(system.height).toBeGreaterThan(inside.height);
+		expect(tipY(1)).toBe(tipYMapper(score.tuning, DEFAULT_LAYOUT)(1));
+	});
+
+	it('fits the longest tine and its number inside the staff', () => {
+		const { score } = layout('3/4');
+		for (const labels of ['inside', 'below'] as const) {
+			const o = { ...DEFAULT_LAYOUT, labels };
+			const tipY = tipYMapper(score.tuning, o);
+			const height = staffHeightFor(score.tuning, o);
+			expect(tipY(1)).toBeLessThan(height);
+			// Compact by default: roughly a third of the original 160px staff.
+			expect(height).toBeLessThan(labels === 'inside' ? 70 : 90);
+		}
 	});
 });
