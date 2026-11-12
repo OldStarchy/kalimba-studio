@@ -8,6 +8,17 @@ import { ScoreSvg } from './render/ScoreSvg';
 import { SAMPLES } from './samples';
 
 const STORAGE_KEY = 'kalimba-studio:source';
+const LABELS_KEY = 'kalimba-studio:labels';
+
+type LabelPlacement = 'inside' | 'below';
+
+function initialLabels(): LabelPlacement {
+	try {
+		return localStorage.getItem(LABELS_KEY) === 'below' ? 'below' : 'inside';
+	} catch {
+		return 'inside';
+	}
+}
 
 function encodeSource(source: string): string {
 	const bytes = new TextEncoder().encode(source);
@@ -57,6 +68,7 @@ export function App() {
 	const [source, setSource] = useState(initialSource);
 	const [showSource, setShowSource] = useState(true);
 	const [zoom, setZoom] = useState(72);
+	const [labels, setLabels] = useState(initialLabels);
 	const [tempoOverride, setTempoOverride] = useState<number | null>(null);
 	const [tick, setTick] = useState<number | null>(null);
 	const [copied, setCopied] = useState(false);
@@ -66,8 +78,8 @@ export function App() {
 
 	const { score, diagnostics } = useMemo(() => parse(source), [source]);
 	const layout = useMemo(
-		() => layoutScore(score, { width: Math.max(320, scoreWidth), pxPerQuarter: zoom }),
-		[score, scoreWidth, zoom],
+		() => layoutScore(score, { width: Math.max(320, scoreWidth), pxPerQuarter: zoom, labels }),
+		[score, scoreWidth, zoom, labels],
 	);
 	const tempo = tempoOverride ?? score.tempo;
 
@@ -78,6 +90,14 @@ export function App() {
 			// Not being able to save is not worth interrupting anyone for.
 		}
 	}, [source]);
+
+	useEffect(() => {
+		try {
+			localStorage.setItem(LABELS_KEY, labels);
+		} catch {
+			// As above.
+		}
+	}, [labels]);
 
 	useEffect(() => () => playback.current?.stop(), []);
 
@@ -158,6 +178,13 @@ export function App() {
 				<label>
 					Spacing
 					<input type="range" min={36} max={160} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
+				</label>
+				<label>
+					Numbers
+					<select value={labels} onChange={(e) => setLabels(e.target.value as LabelPlacement)}>
+						<option value="inside">Inside tine</option>
+						<option value="below">Below tine (larger)</option>
+					</select>
 				</label>
 				<select
 					value=""

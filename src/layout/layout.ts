@@ -35,6 +35,10 @@ export interface LayoutOptions {
 	minGridPx: number;
 	/** Systems are justified to full width unless that would stretch them more than this. */
 	maxJustify: number;
+	/** Key numbers inside the tine glyph, or larger beneath it. */
+	labels: 'inside' | 'below';
+	/** Font size for numbers placed beneath the glyph. Inside numbers are limited by the glyph width. */
+	belowLabelSize: number;
 }
 
 export const DEFAULT_LAYOUT: LayoutOptions = {
@@ -53,7 +57,18 @@ export const DEFAULT_LAYOUT: LayoutOptions = {
 	beamSpacing: 6.5,
 	minGridPx: 36,
 	maxJustify: 1.6,
+	labels: 'inside',
+	belowLabelSize: 17,
 };
+
+const INSIDE_LABEL_SIZE = 12;
+/** Worst-case room between a glyph's bottom and a number beneath it: a small gap plus two octave dots. */
+const BELOW_DOT_RESERVE = 11;
+
+/** Extra staff height needed below the lowest tine when numbers sit beneath the glyphs. */
+function belowLabelSpace(o: LayoutOptions): number {
+	return o.labels === 'below' ? BELOW_DOT_RESERVE + o.belowLabelSize * 0.8 : 0;
+}
 
 export type Primitive =
 	| { type: 'staffLine'; x1: number; x2: number; y: number }
@@ -61,7 +76,18 @@ export type Primitive =
 	| { type: 'grid'; x: number; y1: number; y2: number }
 	| { type: 'barNumber'; x: number; y: number; text: string }
 	| { type: 'glyph'; side: Side; fill: string; outline: string; hollow: boolean; event: number }
-	| { type: 'label'; x: number; y: number; degree: string; octave: number; side: Side; hollow: boolean; event: number }
+	| {
+			type: 'label';
+			x: number;
+			y: number;
+			size: number;
+			placement: 'inside' | 'below';
+			degree: string;
+			octave: number;
+			side: Side;
+			hollow: boolean;
+			event: number;
+	  }
 	| { type: 'stem'; x: number; y1: number; y2: number; event: number }
 	| { type: 'beam'; x1: number; x2: number; y: number; thickness: number }
 	| { type: 'flag'; x: number; y: number; event: number }
@@ -120,7 +146,7 @@ export function tipYMapper(tuning: Tuning, o: LayoutOptions): (length: number) =
 	const lengths = tuning.tines.map((t) => t.length);
 	const max = Math.max(...lengths);
 	const min = Math.min(...lengths);
-	const lowest = o.staffHeight - 8;
+	const lowest = o.staffHeight - 8 - belowLabelSpace(o);
 	const highest = o.stemTop + 3 * o.beamSpacing + o.glyphHeight + 6;
 	return (length) => {
 		const n = max === min ? 1 : (length - min) / (max - min);
@@ -175,7 +201,9 @@ function interpolate(anchors: TimeAnchor[], tick: number): number {
 }
 
 export function layoutScore(score: Score, options: Partial<LayoutOptions> = {}): ScoreLayout {
-	const o = { ...DEFAULT_LAYOUT, ...options };
+	const merged = { ...DEFAULT_LAYOUT, ...options };
+	// Numbers beneath the glyphs get their own band at the bottom of the staff rather than squeezing the tines.
+	const o = { ...merged, staffHeight: merged.staffHeight + belowLabelSpace(merged) };
 	const anchors = placeAnchors(score, o);
 	const bars = anchors.filter((a) => a.kind === 'bar');
 	const bar = barTicks(score.time);
@@ -302,7 +330,13 @@ function buildSystem(
 				out.push({
 					type: 'label',
 					x: x + dir * o.glyphWidth * (col + 0.5),
-					y: g.columnBottoms[col]! - 8.5,
+					y:
+						o.labels === 'below'
+							? // Tuck the number up under the glyph, leaving room only for the octave dots it actually has.
+								g.columnBottoms[col]! + 3 + Math.max(0, n.tine.octave) * 4 + o.belowLabelSize * 0.4
+							: g.columnBottoms[col]! - 8.5,
+					size: o.labels === 'below' ? o.belowLabelSize : INSIDE_LABEL_SIZE,
+					placement: o.labels,
 					degree: n.tine.degree,
 					octave: n.tine.octave,
 					side,

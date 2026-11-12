@@ -97,4 +97,19 @@ describe('layout', () => {
 			}
 		}
 	});
+
+	it('puts larger numbers beneath the glyphs inside the staff', () => {
+		const { score, result } = layout("1L+3/4 1R+3/8 5 1'+2'/4", { labels: 'below' });
+		const system = result.systems[0]!;
+		const bottomLine = system.top + system.height;
+		const tipY = tipYMapper(score.tuning, { ...DEFAULT_LAYOUT, labels: 'below' });
+		for (const l of ofType(system.primitives, 'label')) {
+			expect(l.placement).toBe('below');
+			expect(l.size).toBe(DEFAULT_LAYOUT.belowLabelSize);
+			expect(l.y + l.size / 2).toBeLessThanOrEqual(bottomLine);
+		}
+		// Tines keep the same spread; the staff grows to make room for the numbers.
+		expect(system.height).toBeGreaterThan(DEFAULT_LAYOUT.staffHeight);
+		expect(tipY(1)).toBe(tipYMapper(score.tuning, DEFAULT_LAYOUT)(1) - (system.height - DEFAULT_LAYOUT.staffHeight));
+	});
 });

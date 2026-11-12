@@ -89,12 +89,13 @@ function renderPrimitive(p: Primitive, key: number): ReactNode {
 			const dots: ReactNode[] = [];
 			const n = Math.abs(p.octave);
 			for (let i = 0; i < n; i++) {
-				const dy = p.octave > 0 ? -9 - i * 4 : 8 + i * 4;
-				dots.push(<circle key={i} cx={p.x} cy={p.y + dy} r={1.5} />);
+				// Dots sit just clear of the digit's cap height, stacking away from it.
+				const clear = p.size * 0.42 + 3 + i * 4;
+				dots.push(<circle key={i} cx={p.x} cy={p.y + (p.octave > 0 ? -clear : clear)} r={p.size > 14 ? 1.8 : 1.5} />);
 			}
 			return (
-				<g key={key} className={`label side-${p.side}${p.hollow ? ' hollow' : ''}`}>
-					<text x={p.x} y={p.y} textAnchor="middle" dominantBaseline="central">
+				<g key={key} className={`label side-${p.side} ${p.placement}${p.hollow ? ' hollow' : ''}`}>
+					<text x={p.x} y={p.y} textAnchor="middle" dominantBaseline="central" fontSize={p.size}>
 						{p.degree}
 					</text>
 					{dots}
@@ -131,11 +132,14 @@ const SVG_STYLE = `
 .side-R .glyph-outline { stroke: #378ADD; }
 .fade-L-stop { stop-color: #F0997B; }
 .fade-R-stop { stop-color: #85B7EB; }
-.label text { font: 500 12px system-ui, sans-serif; }
+.label text { font-family: system-ui, sans-serif; font-weight: 500; }
+.label.below text { font-weight: 600; }
 .label.side-L text, .label.side-L circle { fill: #4A1B0C; }
 .label.side-R text, .label.side-R circle { fill: #042C53; }
-.label.hollow.side-L text, .label.hollow.side-L circle { fill: #993C1D; }
-.label.hollow.side-R text, .label.hollow.side-R circle { fill: #185FA5; }
+.label.hollow.side-L text, .label.hollow.side-L circle,
+.label.below.side-L text, .label.below.side-L circle { fill: #993C1D; }
+.label.hollow.side-R text, .label.hollow.side-R circle,
+.label.below.side-R text, .label.below.side-R circle { fill: #185FA5; }
 @media (prefers-color-scheme: dark) {
 	.ink-fill { fill: #E8E6DF; }
 	.ink-stroke, .stem { stroke: #E8E6DF; }
@@ -143,8 +147,10 @@ const SVG_STYLE = `
 	.fade-L-stop { stop-color: #D85A30; }
 	.fade-R-stop { stop-color: #378ADD; }
 	.label.side-L text, .label.side-L circle, .label.side-R text, .label.side-R circle { fill: #FFFFFF; }
-	.label.hollow.side-L text, .label.hollow.side-L circle { fill: #F0997B; }
-	.label.hollow.side-R text, .label.hollow.side-R circle { fill: #85B7EB; }
+	.label.hollow.side-L text, .label.hollow.side-L circle,
+	.label.below.side-L text, .label.below.side-L circle { fill: #F0997B; }
+	.label.hollow.side-R text, .label.hollow.side-R circle,
+	.label.below.side-R text, .label.below.side-R circle { fill: #85B7EB; }
 }
 `;
 
