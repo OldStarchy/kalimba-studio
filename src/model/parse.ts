@@ -63,6 +63,12 @@ export function parse(source: string): ParseResult {
 	let tuning: Tuning = C17;
 
 	const tokens: Token[] = [];
+	const lineStarts: number[] = [];
+	let runningOffset = 0;
+	for (const l of lines) {
+		lineStarts.push(runningOffset);
+		runningOffset += l.length + 1;
+	}
 
 	lines.forEach((rawLine, lineIndex) => {
 		const line = stripComment(rawLine);
@@ -71,7 +77,13 @@ export function parse(source: string): ParseResult {
 		if (header) {
 			const key = header[1]!.toLowerCase();
 			const value = header[2]!;
-			const span: SourceSpan = { line: lineNo, column: line.indexOf(value) + 1, length: Math.max(value.length, 1) };
+			const column = line.indexOf(value) + 1;
+			const span: SourceSpan = {
+				offset: lineStarts[lineIndex]! + column - 1,
+				line: lineNo,
+				column,
+				length: Math.max(value.length, 1),
+			};
 			switch (key) {
 				case 'title':
 					title = value || undefined;
@@ -108,7 +120,10 @@ export function parse(source: string): ParseResult {
 			return;
 		}
 		for (const m of line.matchAll(/\S+/g)) {
-			tokens.push({ text: m[0], span: { line: lineNo, column: m.index + 1, length: m[0].length } });
+			tokens.push({
+				text: m[0],
+				span: { offset: lineStarts[lineIndex]! + m.index, line: lineNo, column: m.index + 1, length: m[0].length },
+			});
 		}
 	});
 
@@ -152,7 +167,7 @@ export function parse(source: string): ParseResult {
 			dots = dotText?.length ?? 0;
 		}
 		const duration = valueToTicks(value, dots);
-		const base = { tick, duration, value, dots, span: token.span };
+		const base = { tick, duration, value, dots, explicitDuration: valueText !== undefined, span: token.span };
 		tick += duration;
 
 		if (body === 'r') {

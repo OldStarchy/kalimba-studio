@@ -1,54 +1,39 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { audio, PAN_WIDTH, pluck } from './audio/engine';
+import { Metronome } from './audio/metronome';
 import { play, type PlaybackHandle } from './audio/player';
-import { layoutScore, positionAtTick } from './layout/layout';
+import { Kalimba } from './components/Kalimba';
+import { caretAtPoint, caretPosition, layoutScore, positionAtTick } from './layout/layout';
+import { caretTick, deleteEvent, type Duration, insertTokens, quantiseTaps, type Tap, tokenText } from './model/edit';
 import { parse } from './model/parse';
-import type { Diagnostic } from './model/score';
+import { barTicks, type Diagnostic, type Note, PPQ } from './model/score';
+import { findTine, type Side, type Tine } from './model/tuning';
 import { ScoreSvg } from './render/ScoreSvg';
 import { SAMPLES } from './samples';
-
-const STORAGE_KEY = 'kalimba-studio:source';
-const LABELS_KEY = 'kalimba-studio:labels';
+import { encodeSource, initialSource, loadSetting, saveSetting, saveSource } from './storage';
+import { useHistory } from './useHistory';
 
 type LabelPlacement = 'inside' | 'below';
+type TapMode = 'play' | 'insert';
 
-function initialLabels(): LabelPlacement {
-	try {
-		return localStorage.getItem(LABELS_KEY) === 'below' ? 'below' : 'inside';
-	} catch {
-		return 'inside';
-	}
-}
+const DURATIONS: { value: number; label: string; title: string }[] = [
+	{ value: 1, label: '1', title: 'Whole' },
+	{ value: 2, label: '½', title: 'Half' },
+	{ value: 4, label: '¼', title: 'Quarter' },
+	{ value: 8, label: '⅛', title: 'Eighth' },
+	{ value: 16, label: '1/16', title: 'Sixteenth' },
+	{ value: 32, label: '1/32', title: 'Thirty-second' },
+];
 
-function encodeSource(source: string): string {
-	const bytes = new TextEncoder().encode(source);
-	let bin = '';
-	for (const b of bytes) bin += String.fromCharCode(b);
-	return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+/** Taps on the kalimba this close together become one chord when inserting. */
+const CHORD_WINDOW_MS = 70;
 
-function decodeSource(encoded: string): string | null {
-	try {
-		const bin = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
-		return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
-	} catch {
-		return null;
-	}
-}
-
-function initialSource(): string {
-	const hash = new URLSearchParams(location.hash.slice(1)).get('s');
-	if (hash) {
-		const decoded = decodeSource(hash);
-		if (decoded) return decoded;
-	}
-	try {
-		const saved = localStorage.getItem(STORAGE_KEY);
-		if (saved) return saved;
-	} catch {
-		// Storage can be unavailable (private mode); the sample is a fine fallback.
-	}
-	return SAMPLES[0]!.source;
+interface Recording {
+	/** Audio-clock time of the caret's position; taps are measured from here. */
+	zero: number;
+	countInBeats: number;
+	taps: Tap[];
 }
 
 function useElementWidth<T extends HTMLElement>() {
@@ -64,18 +49,41 @@ function useElementWidth<T extends HTMLElement>() {
 	return [ref, width] as const;
 }
 
+function useViewportHeight() {
+	const [h, setH] = useState(() => window.innerHeight);
+	useEffect(() => {
+		const on = () => setH(window.innerHeight);
+		window.addEventListener('resize', on);
+		return () => window.removeEventListener('resize', on);
+	}, []);
+	return h;
+}
+
 export function App() {
-	const [source, setSource] = useState(initialSource);
-	const [showSource, setShowSource] = useState(true);
-	const [zoom, setZoom] = useState(72);
-	const [labels, setLabels] = useState(initialLabels);
-	const [spread, setSpread] = useState(20);
+	const { source, caret, commit, setCaret, undo, redo, canUndo, canRedo } = useHistory(initialSource());
+	const [showSource, setShowSource] = useState(() => loadSetting('showSource', 'yes') === 'yes');
+	const [showKalimba, setShowKalimba] = useState(() => loadSetting('showKalimba', 'yes') === 'yes');
+	const [zoom, setZoom] = useState<number>(() => loadSetting('zoom', 72));
+	const [labels, setLabels] = useState<LabelPlacement>(() => loadSetting('labels', 'inside', (v) => v === 'inside' || v === 'below'));
+	const [spread, setSpread] = useState<number>(() => loadSetting('spread', 20));
+	const [tapMode, setTapMode] = useState<TapMode>(() => loadSetting('tapMode', 'play', (v) => v === 'play' || v === 'insert'));
+	const [duration, setDuration] = useState<Duration>({ value: 4, dots: 0 });
+	const [recordGrid, setRecordGrid] = useState<number>(() => loadSetting('recordGrid', 16));
+	const [metronomeOn, setMetronomeOn] = useState(false);
 	const [tempoOverride, setTempoOverride] = useState<number | null>(null);
 	const [tick, setTick] = useState<number | null>(null);
+	const [recording, setRecording] = useState<Recording | null>(null);
+	const [beat, setBeat] = useState<number | null>(null);
 	const [copied, setCopied] = useState(false);
+
 	const playback = useRef<PlaybackHandle | null>(null);
+	const metronome = useRef(new Metronome());
+	const recordingRef = useRef<Recording | null>(null);
+	const pendingChord = useRef<{ notes: Note[]; timer: ReturnType<typeof setTimeout> } | null>(null);
 	const textarea = useRef<HTMLTextAreaElement>(null);
+	const staffRef = useRef<HTMLDivElement>(null);
 	const [scoreRef, scoreWidth] = useElementWidth<HTMLDivElement>();
+	const viewportHeight = useViewportHeight();
 
 	const { score, diagnostics } = useMemo(() => parse(source), [source]);
 	const layout = useMemo(
@@ -83,24 +91,28 @@ export function App() {
 		[score, scoreWidth, zoom, labels, spread],
 	);
 	const tempo = tempoOverride ?? score.tempo;
+	const safeCaret = Math.min(caret, score.events.length);
+
+	// Latest values for callbacks that outlive a render (chord timers, metronome beats).
+	const live = useRef({ source, score, caret: safeCaret, duration });
+	live.current = { source, score, caret: safeCaret, duration };
+
+	useEffect(() => saveSource(source), [source]);
+	useEffect(() => saveSetting('labels', labels), [labels]);
+	useEffect(() => saveSetting('zoom', zoom), [zoom]);
+	useEffect(() => saveSetting('spread', spread), [spread]);
+	useEffect(() => saveSetting('tapMode', tapMode), [tapMode]);
+	useEffect(() => saveSetting('recordGrid', recordGrid), [recordGrid]);
+	useEffect(() => saveSetting('showSource', showSource ? 'yes' : 'no'), [showSource]);
+	useEffect(() => saveSetting('showKalimba', showKalimba ? 'yes' : 'no'), [showKalimba]);
 
 	useEffect(() => {
-		try {
-			localStorage.setItem(STORAGE_KEY, source);
-		} catch {
-			// Not being able to save is not worth interrupting anyone for.
-		}
-	}, [source]);
-
-	useEffect(() => {
-		try {
-			localStorage.setItem(LABELS_KEY, labels);
-		} catch {
-			// As above.
-		}
-	}, [labels]);
-
-	useEffect(() => () => playback.current?.stop(), []);
+		const m = metronome.current;
+		return () => {
+			playback.current?.stop();
+			m.stop();
+		};
+	}, []);
 
 	const cursor = useMemo(() => {
 		if (tick === null) return undefined;
@@ -109,27 +121,221 @@ export function App() {
 		return { system: layout.systems.indexOf(pos.system), x: pos.x };
 	}, [tick, layout]);
 
+	const caretPos = useMemo(() => caretPosition(layout, safeCaret), [layout, safeCaret]);
+
+	// Keep the caret in view while editing.
+	useEffect(() => {
+		if (!caretPos) return;
+		const system = layout.systems[caretPos.system];
+		const svg = staffRef.current?.querySelector('svg');
+		if (!system || !svg) return;
+		const rect = svg.getBoundingClientRect();
+		const y = rect.top + system.top + system.height / 2;
+		if (y < 100 || y > window.innerHeight - 220) window.scrollBy({ top: y - window.innerHeight / 3, behavior: 'smooth' });
+	}, [caretPos, layout]);
+
+	// ---- Transport ----
+
+	const stopPlayback = () => {
+		playback.current?.stop();
+		playback.current = null;
+	};
+
 	const togglePlay = () => {
-		if (playback.current) {
-			playback.current.stop();
-			playback.current = null;
-			return;
-		}
-		playback.current = play(score, tempo, (t) => {
+		if (recordingRef.current) return;
+		if (playback.current) return stopPlayback();
+		metronome.current.stop();
+		const fromCaret = safeCaret < score.events.length ? caretTick(score, safeCaret) : 0;
+		playback.current = play(score, { tempo, startTick: fromCaret, metronome: metronomeOn }, (t) => {
 			setTick(t);
-			if (t === null) playback.current = null;
+			if (t === null) {
+				playback.current = null;
+				if (metronomeOn && !recordingRef.current) startFreeMetronome();
+			}
 		});
 	};
+
+	const beatSeconds = (60 / tempo) * (4 / score.time.unit);
+
+	const startFreeMetronome = () => {
+		const { ctx } = audio();
+		metronome.current.start({ startTime: ctx.currentTime + 0.05, beatSeconds, beatsPerBar: score.time.beats, onBeat: setBeat });
+	};
+
+	const toggleMetronome = () => {
+		const next = !metronomeOn;
+		setMetronomeOn(next);
+		if (playback.current || recordingRef.current) return; // takes effect next time
+		if (next) startFreeMetronome();
+		else {
+			metronome.current.stop();
+			setBeat(null);
+		}
+	};
+
+	// Restart a free-running metronome when the tempo or metre changes.
+	useEffect(() => {
+		if (metronomeOn && !playback.current && !recordingRef.current) startFreeMetronome();
+	}, [tempo, score.time.beats, score.time.unit]);
+
+	const startRecording = () => {
+		stopPlayback();
+		flushChord();
+		const { ctx } = audio();
+		const secondsPerTick = 60 / tempo / PPQ;
+		const bar = barTicks(score.time);
+		const posInBar = caretTick(score, safeCaret) % bar;
+		// One full bar of count-in, plus however far into its bar the caret sits, so recorded time lines up.
+		const lead = (bar + posInBar) * secondsPerTick;
+		const zero = ctx.currentTime + 0.15 + lead;
+		const rec: Recording = { zero, countInBeats: Math.round((bar + posInBar) / ((PPQ * 4) / score.time.unit)), taps: [] };
+		recordingRef.current = rec;
+		setRecording(rec);
+		metronome.current.start({ startTime: zero - lead, beatSeconds, beatsPerBar: score.time.beats, onBeat: setBeat });
+	};
+
+	const stopRecording = () => {
+		const rec = recordingRef.current;
+		if (!rec) return;
+		recordingRef.current = null;
+		setRecording(null);
+		setBeat(null);
+		metronome.current.stop();
+		if (metronomeOn) startFreeMetronome();
+		const { ctx } = audio();
+		const tokens = quantiseTaps(rec.taps, {
+			tempo,
+			grid: (PPQ * 4) / recordGrid,
+			stopTime: ctx.currentTime - rec.zero,
+			beat: (PPQ * 4) / score.time.unit,
+		});
+		if (!tokens.length) return;
+		const { source: s, score: sc, caret: c } = live.current;
+		const out = insertTokens(s, sc, c, tokens);
+		commit(out.source, out.caret);
+	};
+
+	// ---- Editing ----
+
+	const insert = useCallback(
+		(tokens: string[]) => {
+			const { source: s, score: sc, caret: c } = live.current;
+			const out = insertTokens(s, sc, c, tokens);
+			commit(out.source, out.caret);
+		},
+		[commit],
+	);
+
+	function flushChord() {
+		const pending = pendingChord.current;
+		if (!pending) return;
+		clearTimeout(pending.timer);
+		pendingChord.current = null;
+		insert([tokenText(pending.notes, live.current.duration)]);
+	}
+
+	const onPluck = (tine: Tine, side: Side) => {
+		pluck(tine.midi, tine.position * PAN_WIDTH);
+		const rec = recordingRef.current;
+		if (rec) {
+			rec.taps.push({ time: audio().ctx.currentTime - rec.zero, tine, side });
+			return;
+		}
+		if (tapMode !== 'insert') return;
+		const pending = pendingChord.current ?? { notes: [], timer: setTimeout(flushChord, CHORD_WINDOW_MS) };
+		pendingChord.current = pending;
+		if (!pending.notes.some((n) => n.tine === tine) && pending.notes.filter((n) => n.side === side).length < 2) {
+			pending.notes.push({ tine, side });
+		}
+	};
+
+	const insertRest = () => insert([tokenText(null, duration)]);
+
+	const deleteBefore = () => {
+		if (safeCaret === 0) return;
+		const out = deleteEvent(source, score, safeCaret - 1);
+		commit(out.source, out.caret);
+	};
+
+	const deleteAfter = () => {
+		if (safeCaret >= score.events.length) return;
+		const out = deleteEvent(source, score, safeCaret);
+		commit(out.source, out.caret);
+	};
+
+	const onStaffKey = (e: KeyboardEvent<HTMLDivElement>) => {
+		const mod = e.ctrlKey || e.metaKey;
+		if (mod && e.key.toLowerCase() === 'z') {
+			e.preventDefault();
+			if (e.shiftKey) redo();
+			else undo();
+			return;
+		}
+		if (mod && e.key.toLowerCase() === 'y') {
+			e.preventDefault();
+			redo();
+			return;
+		}
+		if (mod || e.altKey) return;
+		const n = score.events.length;
+		let handled = true;
+		switch (e.key) {
+			case 'ArrowLeft':
+				setCaret(Math.max(0, safeCaret - 1));
+				break;
+			case 'ArrowRight':
+				setCaret(Math.min(n, safeCaret + 1));
+				break;
+			case 'Home':
+				setCaret(0);
+				break;
+			case 'End':
+				setCaret(n);
+				break;
+			case 'Backspace':
+				deleteBefore();
+				break;
+			case 'Delete':
+				deleteAfter();
+				break;
+			case ' ':
+				togglePlay();
+				break;
+			case 'r':
+				insertRest();
+				break;
+			case '.':
+				setDuration((d) => ({ ...d, dots: d.dots ? 0 : 1 }));
+				break;
+			default: {
+				// Digits type keys in the middle octave; Shift moves up one. The centre tine goes to the left thumb.
+				const digit = /^Digit([1-7])$/.exec(e.code)?.[1];
+				const tine = digit ? findTine(score.tuning, digit, e.shiftKey ? 1 : 0) : undefined;
+				if (tine) {
+					pluck(tine.midi, tine.position * PAN_WIDTH);
+					insert([tokenText([{ tine, side: tine.side === 'C' ? 'L' : tine.side }], duration)]);
+				} else handled = false;
+			}
+		}
+		if (handled) e.preventDefault();
+	};
+
+	const onStaffPointer = (e: PointerEvent<HTMLDivElement>) => {
+		const svg = staffRef.current?.querySelector('svg');
+		if (!svg) return;
+		const rect = svg.getBoundingClientRect();
+		const x = ((e.clientX - rect.left) / rect.width) * layout.width;
+		const y = ((e.clientY - rect.top) / rect.height) * layout.height;
+		setCaret(caretAtPoint(layout, x, y));
+	};
+
+	// ---- Misc ----
 
 	const jumpTo = (d: Diagnostic) => {
 		const el = textarea.current;
 		if (!el) return;
-		const lines = source.split('\n');
-		let offset = 0;
-		for (let i = 0; i < d.span.line - 1; i++) offset += lines[i]!.length + 1;
-		offset += d.span.column - 1;
 		el.focus();
-		el.setSelectionRange(offset, offset + d.span.length);
+		el.setSelectionRange(d.span.offset, d.span.offset + d.span.length);
 	};
 
 	const downloadSvg = () => {
@@ -155,13 +361,35 @@ export function App() {
 	};
 
 	const errors = diagnostics.filter((d) => d.severity === 'error').length;
+	const kalimbaHeight = Math.round(Math.max(90, Math.min(170, viewportHeight * 0.26)));
+
+	let recordStatus = '';
+	if (recording) {
+		if (beat === null || beat < recording.countInBeats) {
+			recordStatus = `Count-in ${recording.countInBeats - (beat ?? 0)}`;
+		} else {
+			const b = beat - recording.countInBeats;
+			recordStatus = `Recording · beat ${b + 1}`;
+		}
+	}
 
 	return (
 		<div className="app">
 			<header className="toolbar">
 				<h1>Kalimba Studio</h1>
-				<button className="primary" onClick={togglePlay} disabled={score.events.length === 0}>
+				<button className="primary" onClick={togglePlay} disabled={score.events.length === 0 || !!recording} title="Play from the caret (Space)">
 					{tick === null ? 'Play' : 'Stop'}
+				</button>
+				<button
+					className={`record${recording ? ' active' : ''}`}
+					onClick={recording ? stopRecording : startRecording}
+					title="Record from the caret, with a bar of count-in"
+				>
+					{recording ? 'Stop rec' : 'Record'}
+				</button>
+				<button className={`toggle${metronomeOn ? ' on' : ''}`} onClick={toggleMetronome} aria-pressed={metronomeOn} title="Metronome">
+					<span className={`beat-dot${beat !== null && beat % score.time.beats === 0 ? ' accent' : ''}${beat !== null ? ' pulse' : ''}`} key={beat ?? -1} />
+					Click
 				</button>
 				<label>
 					Tempo
@@ -176,44 +404,63 @@ export function App() {
 						}}
 					/>
 				</label>
-				<label>
-					Spacing
-					<input type="range" min={36} max={160} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
-				</label>
-				<label title="How far apart the tine tips sit vertically">
-					Height
-					<input type="range" min={8} max={120} value={spread} onChange={(e) => setSpread(Number(e.target.value))} />
-				</label>
-				<label>
-					Numbers
-					<select value={labels} onChange={(e) => setLabels(e.target.value as LabelPlacement)}>
-						<option value="inside">Inside tine</option>
-						<option value="below">Below tine (larger)</option>
-					</select>
-				</label>
-				<select
-					value=""
-					onChange={(e) => {
-						const sample = SAMPLES.find((s) => s.id === e.target.value);
-						if (sample) {
-							setSource(sample.source);
-							setTempoOverride(null);
-						}
-					}}
-				>
-					<option value="" disabled>
-						Load sample…
-					</option>
-					{SAMPLES.map((s) => (
-						<option key={s.id} value={s.id}>
-							{s.name}
-						</option>
-					))}
-				</select>
+				{recording && <span className="rec-status">{recordStatus}</span>}
 				<span className="spacer" />
-				<button onClick={() => setShowSource((v) => !v)}>{showSource ? 'Hide source' : 'Show source'}</button>
-				<button onClick={downloadSvg}>Download SVG</button>
-				<button onClick={share}>{copied ? 'Link copied' : 'Copy link'}</button>
+				<button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z on the staff)">
+					Undo
+				</button>
+				<button onClick={redo} disabled={!canRedo} title="Redo">
+					Redo
+				</button>
+				<details className="menu">
+					<summary>View</summary>
+					<div className="menu-panel">
+						<label>
+							Spacing
+							<input type="range" min={36} max={160} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
+						</label>
+						<label title="How far apart the tine tips sit vertically">
+							Height
+							<input type="range" min={8} max={120} value={spread} onChange={(e) => setSpread(Number(e.target.value))} />
+						</label>
+						<label>
+							Numbers
+							<select value={labels} onChange={(e) => setLabels(e.target.value as LabelPlacement)}>
+								<option value="inside">Inside tine</option>
+								<option value="below">Below tine (larger)</option>
+							</select>
+						</label>
+						<label className="check">
+							<input type="checkbox" checked={showKalimba} onChange={(e) => setShowKalimba(e.target.checked)} />
+							Kalimba
+						</label>
+						<label className="check">
+							<input type="checkbox" checked={showSource} onChange={(e) => setShowSource(e.target.checked)} />
+							Source text
+						</label>
+						<select
+							value=""
+							onChange={(e) => {
+								const sample = SAMPLES.find((s) => s.id === e.target.value);
+								if (sample) {
+									commit(sample.source, 0);
+									setTempoOverride(null);
+								}
+							}}
+						>
+							<option value="" disabled>
+								Load sample…
+							</option>
+							{SAMPLES.map((s) => (
+								<option key={s.id} value={s.id}>
+									{s.name}
+								</option>
+							))}
+						</select>
+						<button onClick={downloadSvg}>Download SVG</button>
+						<button onClick={share}>{copied ? 'Link copied' : 'Copy link'}</button>
+					</div>
+				</details>
 			</header>
 
 			<main>
@@ -229,17 +476,25 @@ export function App() {
 							{errors} {errors === 1 ? 'problem' : 'problems'} in the source; those notes are left out.
 						</p>
 					)}
-					<div className="scroll">
-						<ScoreSvg layout={layout} cursor={cursor} />
+					<div
+						className="scroll staff-focus"
+						ref={staffRef}
+						tabIndex={0}
+						onKeyDown={onStaffKey}
+						onPointerDown={onStaffPointer}
+						aria-label="Score. Arrow keys move the caret, digits insert keys, Backspace deletes."
+					>
+						<ScoreSvg layout={layout} cursor={cursor} caret={caretPos} />
 					</div>
 				</section>
+
 				{showSource && (
 					<section className="source">
 						<textarea
 							ref={textarea}
 							value={source}
 							spellCheck={false}
-							onChange={(e) => setSource(e.target.value)}
+							onChange={(e) => commit(e.target.value, caret, { typing: true })}
 							aria-label="Score source"
 						/>
 						<div className="diagnostics">
@@ -261,7 +516,7 @@ export function App() {
 							)}
 						</div>
 						<details className="help">
-							<summary>Format</summary>
+							<summary>Format and shortcuts</summary>
 							<ul>
 								<li>
 									<code>3/8</code> key 3 for an eighth note. Leave off the <code>/8</code> to repeat the last duration.
@@ -279,11 +534,64 @@ export function App() {
 									Headers: <code>title:</code> <code>composer:</code> <code>tempo:</code> <code>time: 3/4</code>{' '}
 									<code>tuning: c17</code>
 								</li>
+								<li>
+									On the staff: click to place the caret, ←/→ to move it, <kbd>1</kbd>–<kbd>7</kbd> insert a key (Shift for the
+									octave up), <kbd>r</kbd> rest, <kbd>.</kbd> toggles dotted, Backspace/Delete remove, Space plays from the caret.
+								</li>
 							</ul>
 						</details>
 					</section>
 				)}
 			</main>
+
+			{showKalimba && (
+				<footer className="kalimba-panel">
+					<div className="kalimba-controls">
+						<div className="segmented" role="group" aria-label="What tapping does">
+							<button className={tapMode === 'play' ? 'on' : ''} onClick={() => setTapMode('play')}>
+								Play
+							</button>
+							<button className={tapMode === 'insert' ? 'on' : ''} onClick={() => setTapMode('insert')}>
+								Insert
+							</button>
+						</div>
+						<div className="segmented" role="group" aria-label="Duration to insert">
+							{DURATIONS.map((d) => (
+								<button
+									key={d.value}
+									className={duration.value === d.value ? 'on' : ''}
+									title={d.title}
+									onClick={() => setDuration((cur) => ({ ...cur, value: d.value }))}
+								>
+									{d.label}
+								</button>
+							))}
+							<button
+								className={duration.dots ? 'on' : ''}
+								title="Dotted"
+								onClick={() => setDuration((cur) => ({ ...cur, dots: cur.dots ? 0 : 1 }))}
+							>
+								·
+							</button>
+						</div>
+						<button onClick={insertRest} title="Insert a rest at the caret">
+							Rest
+						</button>
+						<button onClick={deleteBefore} disabled={safeCaret === 0} title="Delete before the caret">
+							⌫
+						</button>
+						<label title="Recording snaps to this grid">
+							Grid
+							<select value={recordGrid} onChange={(e) => setRecordGrid(Number(e.target.value))}>
+								<option value={8}>⅛</option>
+								<option value={16}>1/16</option>
+								<option value={32}>1/32</option>
+							</select>
+						</label>
+					</div>
+					<Kalimba tuning={score.tuning} height={kalimbaHeight} onPluck={onPluck} />
+				</footer>
+			)}
 		</div>
 	);
 }

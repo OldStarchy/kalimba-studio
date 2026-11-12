@@ -4,6 +4,8 @@ import type { Side, Tine, Tuning } from './tuning';
 export const PPQ = 480;
 
 export interface SourceSpan {
+	/** Character offset into the source. */
+	offset: number;
 	line: number;
 	column: number;
 	length: number;
@@ -22,6 +24,8 @@ interface EventBase {
 	/** Undotted duration as a note value denominator: 1 = whole, 4 = quarter, 16 = sixteenth. */
 	value: number;
 	dots: number;
+	/** False when the token left its duration off and inherited the previous one. */
+	explicitDuration: boolean;
 	span: SourceSpan;
 }
 

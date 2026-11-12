@@ -225,3 +225,268 @@ main {
 .score {
 	display: block;
 }
+
+/* ---- Transport ---- */
+
+button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+button.record {
+	color: #a32d2d;
+	border-color: #f09595;
+}
+
+button.record.active {
+	background: #e24b4a;
+	border-color: #e24b4a;
+	color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+	button.record {
+		color: #f09595;
+		border-color: #791f1f;
+	}
+}
+
+button.toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+button.toggle.on {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+
+.beat-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--border);
+}
+
+.beat-dot.pulse {
+	background: var(--accent);
+	animation: beat-fade 0.35s ease-out forwards;
+}
+
+.beat-dot.pulse.accent {
+	background: #e24b4a;
+}
+
+@keyframes beat-fade {
+	from {
+		transform: scale(1.4);
+	}
+	to {
+		transform: scale(1);
+		opacity: 0.35;
+	}
+}
+
+.rec-status {
+	font-size: 13px;
+	font-variant-numeric: tabular-nums;
+	color: #e24b4a;
+	font-weight: 600;
+}
+
+/* ---- View menu ---- */
+
+.menu {
+	position: relative;
+}
+
+.menu summary {
+	list-style: none;
+	cursor: pointer;
+	font-size: 13px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 5px 10px;
+	background: var(--surface);
+}
+
+.menu summary::-webkit-details-marker {
+	display: none;
+}
+
+.menu-panel {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 6px);
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 10px;
+	min-width: 240px;
+	padding: 12px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 0.15);
+}
+
+.menu-panel label {
+	justify-content: space-between;
+}
+
+.menu-panel label.check {
+	justify-content: flex-start;
+}
+
+/* ---- Staff caret ---- */
+
+.staff-focus {
+	outline: none;
+	border-radius: 6px;
+	cursor: text;
+}
+
+.staff-focus:focus-visible {
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.staff-focus .caret {
+	opacity: 0.45;
+}
+
+.staff-focus:focus-within .caret {
+	opacity: 1;
+	animation: caret-blink 1.1s steps(1) infinite;
+}
+
+@keyframes caret-blink {
+	50% {
+		opacity: 0;
+	}
+}
+
+/* ---- Kalimba ---- */
+
+.kalimba-panel {
+	position: sticky;
+	bottom: 0;
+	z-index: 2;
+	background: var(--surface);
+	border-top: 1px solid var(--border);
+	padding: 6px 8px 8px;
+}
+
+.kalimba-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 10px;
+	margin-bottom: 6px;
+	font-size: 13px;
+}
+
+.kalimba-controls label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--muted);
+}
+
+.segmented {
+	display: inline-flex;
+}
+
+.segmented button {
+	border-radius: 0;
+	margin-left: -1px;
+	padding: 4px 9px;
+}
+
+.segmented button:first-child {
+	border-radius: 6px 0 0 6px;
+	margin-left: 0;
+}
+
+.segmented button:last-child {
+	border-radius: 0 6px 6px 0;
+}
+
+.segmented button.on {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-ink);
+	position: relative;
+}
+
+.kalimba {
+	display: block;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	cursor: pointer;
+}
+
+.kalimba-bridge {
+	fill: var(--muted);
+}
+
+.kalimba-tine {
+	stroke-width: 1.2;
+	transition: fill 0.12s;
+}
+
+.kalimba-tine.side-L {
+	fill: #faece7;
+	stroke: #d85a30;
+}
+
+.kalimba-tine.side-R {
+	fill: #e6f1fb;
+	stroke: #378add;
+}
+
+.kalimba-tine.side-L.lit {
+	fill: #f0997b;
+	transition: none;
+}
+
+.kalimba-tine.side-R.lit {
+	fill: #85b7eb;
+	transition: none;
+}
+
+.kalimba-label {
+	pointer-events: none;
+	font: 600 13px system-ui, sans-serif;
+}
+
+.kalimba-label.side-L {
+	fill: #993c1d;
+}
+
+.kalimba-label.side-R {
+	fill: #185fa5;
+}
+
+@media (prefers-color-scheme: dark) {
+	.kalimba-tine.side-L {
+		fill: #4a1b0c;
+	}
+	.kalimba-tine.side-R {
+		fill: #042c53;
+	}
+	.kalimba-tine.side-L.lit {
+		fill: #d85a30;
+	}
+	.kalimba-tine.side-R.lit {
+		fill: #378add;
+	}
+	.kalimba-label.side-L {
+		fill: #f5c4b3;
+	}
+	.kalimba-label.side-R {
+		fill: #b5d4f4;
+	}
+}

@@ -5,6 +5,8 @@ export interface ScoreSvgProps {
 	layout: ScoreLayout;
 	/** Playback cursor, if playing. */
 	cursor?: { system: number; x: number };
+	/** Editing caret, drawn like a text cursor. */
+	caret?: { system: number; x: number };
 }
 
 /** Rest glyph centred on (x, y). */
@@ -127,6 +129,7 @@ const SVG_STYLE = `
 .ink-stroke { stroke: #2C2C2A; }
 .stem { stroke: #2C2C2A; stroke-width: 1.4; }
 .cursor { stroke: #7F77DD; stroke-width: 2; }
+.caret { stroke: #534AB7; stroke-width: 2; stroke-linecap: round; }
 .glyph-outline { stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .side-L .glyph-outline { stroke: #D85A30; }
 .side-R .glyph-outline { stroke: #378ADD; }
@@ -154,7 +157,7 @@ const SVG_STYLE = `
 }
 `;
 
-export function ScoreSvg({ layout, cursor }: ScoreSvgProps) {
+export function ScoreSvg({ layout, cursor, caret }: ScoreSvgProps) {
 	return (
 		<svg
 			className="score"
@@ -178,6 +181,9 @@ export function ScoreSvg({ layout, cursor }: ScoreSvgProps) {
 			{layout.systems.map((s, i) => (
 				<g key={i}>
 					{s.primitives.map(renderPrimitive)}
+					{caret?.system === i && (
+						<line x1={caret.x} x2={caret.x} y1={s.top - 6} y2={s.top + s.height + 6} className="caret" />
+					)}
 					{cursor?.system === i && <line x1={cursor.x} x2={cursor.x} y1={s.top - 4} y2={s.top + s.height + 4} className="cursor" />}
 				</g>
 			))}

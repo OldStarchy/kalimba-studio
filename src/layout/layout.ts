@@ -113,10 +113,23 @@ export interface SystemLayout {
 	anchors: TimeAnchor[];
 }
 
+export interface EventPosition {
+	system: number;
+	/** Stem x. */
+	x: number;
+	/** How far the event's glyphs reach left and right of the stem. */
+	left: number;
+	right: number;
+}
+
 export interface ScoreLayout {
 	width: number;
 	height: number;
 	systems: SystemLayout[];
+	/** Position of every score event, by event index. */
+	events: EventPosition[];
+	minGap: number;
+	barPad: number;
 }
 
 interface Anchor {
@@ -244,6 +257,7 @@ export function layoutScore(score: Score, options: Partial<LayoutOptions> = {}):
 	if (current.length) lines.push(current);
 
 	const systems: SystemLayout[] = [];
+	const eventPositions: EventPosition[] = [];
 	let top = o.systemGap;
 	lines.forEach((barIndexes, lineIndex) => {
 		const first = bars[barIndexes[0]!]!;
@@ -259,6 +273,9 @@ export function layoutScore(score: Score, options: Partial<LayoutOptions> = {}):
 
 		const inLine = anchors.filter((a) => a.tick >= first.tick && a.tick <= last.tick && (a.kind === 'event' ? a.tick < last.tick : true));
 		const timeAnchors: TimeAnchor[] = [];
+		for (const a of inLine) {
+			if (a.kind === 'event') eventPositions[a.event!] = { system: lineIndex, x: tx(a.x), left: a.left, right: a.right };
+		}
 		for (const a of inLine) {
 			const x = tx(a.x);
 			// At a tick shared by a barline and an event, time "is" at the event's stem.
@@ -291,7 +308,7 @@ export function layoutScore(score: Score, options: Partial<LayoutOptions> = {}):
 	});
 
 	const width = Math.max(o.width, ...systems.flatMap((s) => s.anchors.map((a) => a.x + o.marginX)));
-	return { width, height: top, systems };
+	return { width, height: top, systems, events: eventPositions, minGap: o.minGap, barPad: o.barPad };
 }
 
 function buildSystem(
@@ -451,4 +468,43 @@ export function positionAtTick(layout: ScoreLayout, tick: number): { system: Sys
 	const system = layout.systems.find((s) => tick >= s.startTick && tick < s.endTick) ?? layout.systems[layout.systems.length - 1];
 	if (!system) return undefined;
 	return { system, x: interpolate(system.anchors, Math.min(tick, system.endTick)) };
+}
+
+/** Where to draw the text-editor style caret that sits just before event `caret` (or after the last one). */
+export function caretPosition(layout: ScoreLayout, caret: number): { system: number; x: number } | undefined {
+	const at = layout.events[caret];
+	if (at) return { system: at.system, x: at.x - at.left - layout.minGap / 2 };
+	const last = layout.events[layout.events.length - 1];
+	if (last) return { system: last.system, x: last.x + last.right + layout.minGap / 2 };
+	const first = layout.systems[0];
+	if (!first) return undefined;
+	const bar = first.primitives.find((p) => p.type === 'barline');
+	return { system: 0, x: (bar?.type === 'barline' ? bar.x : 0) + layout.barPad };
+}
+
+/** The caret nearest a point on the score, for click-to-place. */
+export function caretAtPoint(layout: ScoreLayout, x: number, y: number): number {
+	if (!layout.events.length) return 0;
+	let system = 0;
+	layout.systems.forEach((s, i) => {
+		if (y >= s.top - 30) system = i;
+	});
+	let best = layout.events.length;
+	let bestDist = Infinity;
+	for (let caret = 0; caret <= layout.events.length; caret++) {
+		const pos = caretPosition(layout, caret);
+		if (!pos || pos.system !== system) continue;
+		// Prefer the caret before an event when clicking on the event's own left half.
+		const d = Math.abs(pos.x - x);
+		if (d < bestDist) {
+			bestDist = d;
+			best = caret;
+		}
+	}
+	if (bestDist === Infinity) {
+		// Clicked a system with no events of its own: go to the first event after it.
+		const after = layout.events.findIndex((e) => e.system > system);
+		return after === -1 ? layout.events.length : after;
+	}
+	return best;
 }

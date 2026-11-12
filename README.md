@@ -37,9 +37,18 @@ tuning: c17
 
 `1L+3` is a split chord (one key per thumb); `1R+3` is a right-thumb double.
 
-## Playback
+## Playing and editing
 
-A two-partial synth (fundamental plus the bar's second bending mode at ~6.27×), panned by each tine's position on the instrument.
+- **Virtual kalimba** along the bottom: tap or slide across tines (multi-touch works). The centre tine is split: its left half is the left thumb, its right half the right thumb.
+- **Caret** on the staff, like a text cursor: click to place it, ←/→/Home/End to move it, Space to play from it.
+- **Insert mode** (kalimba panel): taps insert at the caret with the selected duration; taps within ~70 ms become one chord. On the staff, <kbd>1</kbd>–<kbd>7</kbd> insert keys (Shift for the octave up), <kbd>r</kbd> a rest, <kbd>.</kbd> toggles dotted, Backspace/Delete remove.
+- **Record**: one bar of count-in (plus however far into its bar the caret sits, so timing lines up), then play freely. Stopping snaps taps to the chosen grid, groups simultaneous taps into chords (max two per thumb), and inserts the result at the caret.
+- **Click**: a metronome that runs on its own, or alongside playback.
+- **Undo/redo** covers every edit, including typing in the source.
+
+Edits are made on the source text, so everything stays visible and editable there. Inserting or deleting pins the following token's duration when it was inherited, so nothing else in the piece changes length.
+
+Playback is a two-partial synth (fundamental plus the bar's second bending mode at ~6.27×), panned by each tine's position on the instrument.
 
 ## Development
 
@@ -52,9 +61,10 @@ npx tsx scripts/render.tsx scratch   # render the samples to SVG/PNG for checkin
 
 Code layout:
 
-- `src/model` — tunings, score types, the text parser
+- `src/model` — tunings, score types, the text parser, and source edits (insert/delete at a caret, record quantisation)
 - `src/layout` — pure layout: spacing with the minimum gap, line breaking, beams, gridlines, glyph geometry (including fillets on slanted doubles)
 - `src/render` — React SVG renderer; styles are embedded so a downloaded SVG looks the same
-- `src/audio` — Web Audio playback
+- `src/audio` — shared Web Audio engine, playback, metronome
+- `src/components` — the virtual kalimba
 
 Pushing to `main` deploys to GitHub Pages via Actions.
