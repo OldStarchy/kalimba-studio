@@ -1,0 +1,237 @@
+:root {
+	--bg: #faf9f6;
+	--surface: #ffffff;
+	--ink: #2c2c2a;
+	--muted: #6f6e68;
+	--border: #e2e0d8;
+	--accent: #534ab7;
+	--accent-ink: #ffffff;
+	--error: #a32d2d;
+	--warning: #854f0b;
+	color-scheme: light dark;
+	font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+	color: var(--ink);
+	background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #1c1c1a;
+		--surface: #242422;
+		--ink: #e8e6df;
+		--muted: #a3a199;
+		--border: #3a3936;
+		--accent: #7f77dd;
+		--error: #f09595;
+		--warning: #fac775;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+}
+
+.app {
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+
+.toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 14px;
+	padding: 10px 16px;
+	border-bottom: 1px solid var(--border);
+	background: var(--surface);
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+.toolbar h1 {
+	font-size: 16px;
+	font-weight: 600;
+	margin: 0 8px 0 0;
+}
+
+.toolbar label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	color: var(--muted);
+}
+
+.toolbar input[type='number'] {
+	width: 64px;
+}
+
+.spacer {
+	flex: 1;
+}
+
+button,
+select,
+input {
+	font: inherit;
+	font-size: 13px;
+	color: var(--ink);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 5px 10px;
+}
+
+button {
+	cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+	border-color: var(--muted);
+}
+
+button.primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-ink);
+	min-width: 64px;
+}
+
+main {
+	flex: 1;
+	display: grid;
+	grid-template-columns: 1fr;
+	min-height: 0;
+}
+
+main.with-source {
+	grid-template-columns: minmax(280px, 380px) 1fr;
+}
+
+@media (max-width: 800px) {
+	main.with-source {
+		grid-template-columns: 1fr;
+	}
+}
+
+.source {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 16px;
+	border-right: 1px solid var(--border);
+}
+
+.source textarea {
+	width: 100%;
+	min-height: 320px;
+	flex: 1;
+	resize: vertical;
+	font: 13px/1.6 ui-monospace, 'Cascadia Code', Menlo, monospace;
+	color: var(--ink);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 10px;
+	tab-size: 4;
+}
+
+.diagnostics ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.diagnostics button {
+	width: 100%;
+	text-align: left;
+	border: none;
+	background: none;
+	padding: 4px 0;
+	font-size: 12.5px;
+	line-height: 1.4;
+}
+
+.diagnostics .error button {
+	color: var(--error);
+}
+
+.diagnostics .warning button {
+	color: var(--warning);
+}
+
+.diagnostics .where {
+	font-family: ui-monospace, Menlo, monospace;
+	margin-right: 8px;
+	opacity: 0.8;
+}
+
+.diagnostics .ok {
+	margin: 0;
+	font-size: 12.5px;
+	color: var(--muted);
+}
+
+.help {
+	font-size: 12.5px;
+	color: var(--muted);
+}
+
+.help summary {
+	cursor: pointer;
+}
+
+.help ul {
+	padding-left: 18px;
+	line-height: 1.6;
+}
+
+.help code {
+	color: var(--ink);
+	font-size: 12px;
+}
+
+.sheet {
+	padding: 16px;
+	min-width: 0;
+}
+
+.titles {
+	text-align: center;
+	margin-bottom: 4px;
+}
+
+.titles h2 {
+	margin: 0;
+	font-size: 20px;
+	font-weight: 600;
+}
+
+.titles p {
+	margin: 2px 0 0;
+	color: var(--muted);
+	font-size: 13px;
+}
+
+.error-note {
+	font-size: 13px;
+	color: var(--error);
+	margin: 4px 0;
+}
+
+.scroll {
+	overflow-x: auto;
+}
+
+.score {
+	display: block;
+}
