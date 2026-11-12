@@ -211,7 +211,23 @@ export function App() {
 				<button onClick={share}>{copied ? 'Link copied' : 'Copy link'}</button>
 			</header>
 
-			<main className={showSource ? 'with-source' : ''}>
+			<main>
+				<section className="sheet" ref={scoreRef}>
+					{(score.title || score.composer) && (
+						<div className="titles">
+							{score.title && <h2>{score.title}</h2>}
+							{score.composer && <p>{score.composer}</p>}
+						</div>
+					)}
+					{errors > 0 && (
+						<p className="error-note">
+							{errors} {errors === 1 ? 'problem' : 'problems'} in the source; those notes are left out.
+						</p>
+					)}
+					<div className="scroll">
+						<ScoreSvg layout={layout} cursor={cursor} />
+					</div>
+				</section>
 				{showSource && (
 					<section className="source">
 						<textarea
@@ -262,22 +278,6 @@ export function App() {
 						</details>
 					</section>
 				)}
-				<section className="sheet" ref={scoreRef}>
-					{(score.title || score.composer) && (
-						<div className="titles">
-							{score.title && <h2>{score.title}</h2>}
-							{score.composer && <p>{score.composer}</p>}
-						</div>
-					)}
-					{errors > 0 && (
-						<p className="error-note">
-							{errors} {errors === 1 ? 'problem' : 'problems'} in the source; those notes are left out.
-						</p>
-					)}
-					<div className="scroll">
-						<ScoreSvg layout={layout} cursor={cursor} />
-					</div>
-				</section>
 			</main>
 		</div>
 	);

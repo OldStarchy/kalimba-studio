@@ -103,21 +103,12 @@ button.primary {
 	min-width: 64px;
 }
 
+/* The score always gets the full width; the source sits underneath it. */
 main {
 	flex: 1;
-	display: grid;
-	grid-template-columns: 1fr;
+	display: flex;
+	flex-direction: column;
 	min-height: 0;
-}
-
-main.with-source {
-	grid-template-columns: minmax(280px, 380px) 1fr;
-}
-
-@media (max-width: 800px) {
-	main.with-source {
-		grid-template-columns: 1fr;
-	}
 }
 
 .source {
@@ -125,13 +116,12 @@ main.with-source {
 	flex-direction: column;
 	gap: 10px;
 	padding: 16px;
-	border-right: 1px solid var(--border);
+	border-top: 1px solid var(--border);
 }
 
 .source textarea {
 	width: 100%;
-	min-height: 320px;
-	flex: 1;
+	min-height: 240px;
 	resize: vertical;
 	font: 13px/1.6 ui-monospace, 'Cascadia Code', Menlo, monospace;
 	color: var(--ink);
